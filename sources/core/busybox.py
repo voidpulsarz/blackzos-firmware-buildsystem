@@ -111,8 +111,13 @@ def build_busybox(work_dir: Path, downloads_dir: Path, rootfs_dir: Path, args):
     run_command_live(["make", "defconfig"], cwd=busybox_src_dir, env=env, desc="BusyBox defconfig erstellen")
 
     # 2️⃣ .config patch (TC deactivated + optional extra_cfg)
+    print("Console > Patching Busybox's: -> .config - file !.. .. . \n With:")
+    patch_dict = parse_patch_list(config["config_patch"])
+    print(patch_dict)
+    print(extra_cfg)
     patch_config(busybox_src_dir, {**DEFAULT_PATCH, **config_patch_dict, **extra_cfg})
 
+    
     # 3️⃣ oldconfig non-interaktiv
     run_command_live(
         ["make", "oldconfig", "KCONFIG_ALLCONFIG=/dev/null"],

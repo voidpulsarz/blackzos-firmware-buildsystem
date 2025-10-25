@@ -4,7 +4,10 @@
 # Erstellt Workspace und RootFS-Struktur für BusyBox
 
 import os
+import sys
 import stat
+import shutil
+
 from pathlib import Path
 
 # -----------------------------
@@ -254,7 +257,7 @@ def copy_qemu_user_static(arch: str, qemu_dir: Path | None = None):
         print(f"[WARN] QEMU-Binärdatei {src} existiert nicht. Bitte installieren!")
         return
     
-    import shutil
+    
     shutil.copy2(src, dest)
     dest.chmod(0o755)
     print(f"[INFO] QEMU-Binärdatei {qemu_bin_name} nach {dest} kopiert.")
