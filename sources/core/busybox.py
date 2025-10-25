@@ -22,6 +22,17 @@ def set_config_option(cfg_file: Path, key: str, value: str):
         lines.append(f"{key}={value}")
     cfg_file.write_text("\n".join(lines) + "\n")
 
+def parse_patch_list(patch_list):
+    """Wandelt eine Liste von Strings wie 'KEY=VALUE' in ein Dict um, ignoriert Kommentare"""
+    patch_dict = {}
+    for line in patch_list:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, val = line.split("=", 1)
+            patch_dict[key.strip()] = val.strip()
+    return patch_dict
 
 def patch_config(busybox_src_dir: Path, patch_options: dict):
     """Patched die .config Datei mit den gegebenen Optionen"""
@@ -34,18 +45,33 @@ def patch_config(busybox_src_dir: Path, patch_options: dict):
     print(f"Console > .config gepatcht: {list(patch_options.keys())}")
 
 
+
+
+
+
 def build_busybox(work_dir: Path, downloads_dir: Path, rootfs_dir: Path, args):
-    """Lädt, entpackt, patcht, kompiliert und installiert BusyBox"""
+    """Loads, Extracts, Configures, Compilies and Installs Busybox into target FS"""
     
-    # Config laden
+    # Load Config
     config = load_config(Path("configs") / args.config)
     version = config["version"]
     url = config["url"]
-    cross_compile = config.get("cross_compile", {})
-    extra_cfg = config.get("extra_config", {})
     
+    src_dir_template = config["src_dir"]    
+    busybox_src_dir = Path(src_dir_template.format(version=version))
+    
+    cross_compile = config.get("cross_compile", {})
+    
+    extra_cfg = config.get("extra_config", {})  
+    config_patches = config.get("config_patch", [])
+    config_patch_dict = parse_patch_list(config_patches)
 
-    # Architektur anpassen
+    print("Console > BusyBox Source Dir:", busybox_src_dir)
+    
+    
+    
+    
+    # Adjust Architecture
     if args.arch:
         cross_compile["arch"] = args.arch
         if args.arch == "x86_64":
@@ -53,24 +79,24 @@ def build_busybox(work_dir: Path, downloads_dir: Path, rootfs_dir: Path, args):
         elif args.arch == "arm64":
             cross_compile["compiler_prefix"] = "aarch64-linux-gnu-"
 
-    # Pfade
+    # Paths
     downloads_dir.mkdir(parents=True, exist_ok=True)
     rootfs_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download & Extraktion
+    # Download & Extract
     print(f"Console > Lade BusyBox {version} herunter...")
     tarball = download_file(url, downloads_dir)
 
     print(f"Console > Entpacke BusyBox {version}...")
     extracted_dir = extract_tarball(tarball, work_dir)
 
-    # Quelle ermitteln
+    # Get Source Location
     subdirs = [d for d in extracted_dir.iterdir() if d.is_dir()]
     src_dir = subdirs[0] if len(subdirs) == 1 else extracted_dir
-    busybox_src_dir = work_dir / f"busybox-{version}"
+    
     print(f"Console > BusyBox Quellverzeichnis: {busybox_src_dir}")
 
-    # Umgebungsvariablen für Cross-Compile
+    # Enviroment Variables for Cross-Compile
     env = os.environ.copy()
     arch = cross_compile.get("arch", "arm64")
     env["ARCH"] = arch
@@ -79,14 +105,15 @@ def build_busybox(work_dir: Path, downloads_dir: Path, rootfs_dir: Path, args):
     env["CFLAGS"] = cross_compile.get("cflags", "")
     env["LDFLAGS"] = cross_compile.get("ldflags", "")
 
-    # 1️⃣ defconfig erstellen
+
+
+    # 1️⃣ defconfig created
     run_command_live(["make", "defconfig"], cwd=busybox_src_dir, env=env, desc="BusyBox defconfig erstellen")
 
-    # 2️⃣ .config patchen (TC deaktivieren + optional extra_cfg)
-    patch_config(busybox_src_dir, {**DEFAULT_PATCH, **extra_cfg})
+    # 2️⃣ .config patch (TC deactivated + optional extra_cfg)
+    patch_config(busybox_src_dir, {**DEFAULT_PATCH, **config_patch_dict, **extra_cfg})
 
     # 3️⃣ oldconfig non-interaktiv
-    # run_command_live(["make", "oldconfig"], cwd=busybox_src_dir, env=env, desc="BusyBox oldconfig (non-interaktiv)", input="/dev/null")
     run_command_live(
         ["make", "oldconfig", "KCONFIG_ALLCONFIG=/dev/null"],
         cwd=busybox_src_dir,
@@ -96,14 +123,17 @@ def build_busybox(work_dir: Path, downloads_dir: Path, rootfs_dir: Path, args):
 
 
     # 4️⃣ Kompilieren mit allen Cores
+    print("Detecting available CPU-Cores for compiling source-code ... .. .")
     num_cores = multiprocessing.cpu_count()
-    print(f"Console > Kompiliere BusyBox mit {num_cores} Cores...")
+    print(f"Detected: {num_cores}")
+    
+    print(f"Console > Compiling BusyBox with {num_cores} Cores...")
     run_command_live(["make", f"-j{num_cores}"], cwd=busybox_src_dir, env=env, desc="BusyBox kompilieren")
 
     # 5️⃣ Installation ins RootFS
     run_command_live(["make", f"CONFIG_PREFIX={rootfs_dir}", "install"], cwd=busybox_src_dir, env=env, desc="BusyBox installieren")
 
-    print(f"✅ BusyBox {version} erfolgreich installiert in {rootfs_dir}")
+    print(f"✅ BusyBox {version} successfully installed in {rootfs_dir}")
     
     
     
